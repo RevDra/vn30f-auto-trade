@@ -5,3 +5,6 @@ joblib
 numpy
 pandas
 pydantic-settings
+fastapi
+uvicorn
+redis
