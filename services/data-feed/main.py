@@ -122,8 +122,28 @@ class DataFetcher:
                     df = stock.quote.history(start=now_str, end=now_str, interval='5m')
                     if df is not None and not df.empty:
                         latest = df.iloc[-1]
+
+                        # Extract proper timestamp
+                        ts_val = latest.get('time') or latest.get('tradingDate')
+                        if ts_val is not None:
+                            try:
+                                # Try parsing if it's a string, or just use it if it's already a datetime/timestamp object
+                                if isinstance(ts_val, str):
+                                    # Might be '2026-03-22 14:30:00' or similar
+                                    # Fallback to pandas to_datetime which is robust
+                                    import pandas as pd
+                                    dt_obj = pd.to_datetime(ts_val)
+                                    timestamp_str = dt_obj.isoformat()
+                                else:
+                                    # Assume it's a datetime-like object
+                                    timestamp_str = ts_val.isoformat()
+                            except Exception:
+                                timestamp_str = datetime.now().isoformat()
+                        else:
+                            timestamp_str = datetime.now().isoformat()
+
                         return {
-                            "timestamp": str(latest.name) if hasattr(latest, 'name') else datetime.now().isoformat(),
+                            "timestamp": timestamp_str,
                             "open": float(latest.get('open', 0)),
                             "high": float(latest.get('high', 0)),
                             "low": float(latest.get('low', 0)),
