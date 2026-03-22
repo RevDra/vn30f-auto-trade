@@ -1,23 +1,27 @@
 ```mermaid
 graph TD
     subgraph "Data Feed Service"
-        V[vnstock] --> DC[Data Cleansing + Cross-check 0.1%]
-        T[tvdatafeed] --> DC
-        DC --> Redis[(Redis Pub/Sub)]
+        V[vnstock] -->|"Primary source"| DC["Data Cleansing + Cross-check 0.1%"]
+        T[tvdatafeed] -->|"Fallback source"| DC
+        DC -->|"Cleaned OHLCV / Tick data"| Redis[(Redis Pub/Sub)]
     end
 
     subgraph "AI Prediction Layer"
-        Redis --> QA[Quant Agent]
-        Redis --> HMM[Regime HMM]
-        Redis --> SA[Sentiment]
-        Redis --> RL[RL PPO ONNX]
-        QA & HMM & SA & RL -->|JSON Vote| Redis
+        Redis -->|"Latest data"| QA[Quant Agent]
+        Redis -->|"Latest data"| HMM["Regime HMM"]
+        Redis -->|"Latest data"| SA[Sentiment]
+        Redis -->|"Latest data"| RL["RL PPO ONNX"]
+        
+        QA -->|"JSON Vote"| Redis
+        HMM -->|"Regime State + Multiplier"| Redis
+        SA -->|"Sentiment Score"| Redis
+        RL -->|"Action Proposal + Confidence"| Redis
     end
 
     subgraph "Consensus & Execution"
-        Redis --> ADJ[Adjudicator + VaR + XAI]
-        ADJ --> DB[(MySQL Audit Log)]
-        ADJ --> EXEC[Execution Service]
+        Redis -->|"All Votes + Regime"| ADJ["Adjudicator + VaR + XAI"]
+        ADJ -->|"Audit Record"| DB[(MySQL Audit Log)]
+        ADJ -->|"Approved Signal"| EXEC[Execution Service]
     end
 
     subgraph "Replay Engine"
@@ -29,11 +33,11 @@ graph TD
     end
 
     subgraph "External Broker"
-        EXEC <--> Broker[DNSE/SSI API]
-        Broker -->|Margin/OI realtime| EXEC
+        EXEC <-->|"Place/Cancel/Modify Orders"| Broker["DNSE/SSI API"]
+        Broker -->|"Realtime Margin / OI / Position"| EXEC
     end
 
-    %% Fail-safe
-    EXEC -.->|Heartbeat + Alert| TG[Telegram]
-    ADJ -.->|Emergency Flat| EXEC
+    %% Fail-safe connections
+    EXEC -.->|"Heartbeat check + Alert if lost"| TG[Telegram]
+    ADJ -.->|"Emergency Flat signal"| EXEC
 ```
