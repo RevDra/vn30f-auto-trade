@@ -21,11 +21,11 @@ graph TD
     end
 
     subgraph "Replay Engine"
-        RE[Battle Arena + Monte Carlo\n(Slippage 2-3 ticks + Roll-over Gap)]
+        RE["Battle Arena + Monte Carlo<br>(Slippage 2-3 ticks + Roll-over Gap)"]
     end
 
     subgraph "Monitoring"
-        DASH[FastAPI Dashboard\n/pnl + /margin + WS XAI]
+        DASH["FastAPI Dashboard<br>/pnl + /margin + WS XAI"]
     end
 
     subgraph "External Broker"
