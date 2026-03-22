@@ -1,0 +1,4 @@
+newspaper3k
+requests
+pydantic-settings
+# Claude API or other NLP libraries could be added here later

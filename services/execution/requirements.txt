@@ -1,0 +1,3 @@
+python-fctrading
+requests
+pydantic-settings
