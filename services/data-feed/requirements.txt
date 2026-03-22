@@ -3,3 +3,4 @@ uvicorn
 redis
 vnstock
 pydantic-settings
+git+https://github.com/rongardF/tvdatafeed.git
