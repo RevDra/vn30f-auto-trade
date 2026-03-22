@@ -1,0 +1,146 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - ai-trading-network
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    environment:
+      MYSQL_DATABASE: vn30f1m_db
+      MYSQL_ROOT_PASSWORD: rootpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - ai-trading-network
+
+  data-feed:
+    build:
+      context: ./services/data-feed
+      dockerfile: Dockerfile
+    container_name: data-feed
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+    volumes:
+      - ./shared:/app/shared
+    networks:
+      - ai-trading-network
+
+  replay-engine:
+    build:
+      context: ./services/replay-engine
+      dockerfile: Dockerfile
+    container_name: replay-engine
+    environment:
+      - REDIS_HOST=redis
+    volumes:
+      - ./shared:/app/shared
+    networks:
+      - ai-trading-network
+
+  quant-regime:
+    build:
+      context: ./services/quant-regime
+      dockerfile: Dockerfile
+    container_name: quant-regime
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+    volumes:
+      - ./shared:/app/shared
+    networks:
+      - ai-trading-network
+
+  sentiment:
+    build:
+      context: ./services/sentiment
+      dockerfile: Dockerfile
+    container_name: sentiment
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+    volumes:
+      - ./shared:/app/shared
+    networks:
+      - ai-trading-network
+
+  rl-agent:
+    build:
+      context: ./services/rl-agent
+      dockerfile: Dockerfile
+    container_name: rl-agent
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+    volumes:
+      - ./shared:/app/shared
+    networks:
+      - ai-trading-network
+
+  adjudicator:
+    build:
+      context: ./services/adjudicator
+      dockerfile: Dockerfile
+    container_name: adjudicator
+    depends_on:
+      - redis
+      - mysql
+    environment:
+      - REDIS_HOST=redis
+      - MYSQL_HOST=mysql
+      - MYSQL_DATABASE=vn30f1m_db
+      - MYSQL_ROOT_PASSWORD=rootpass
+    volumes:
+      - ./shared:/app/shared
+    networks:
+      - ai-trading-network
+
+  execution:
+    build:
+      context: ./services/execution
+      dockerfile: Dockerfile
+    container_name: execution
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+    volumes:
+      - ./shared:/app/shared
+    networks:
+      - ai-trading-network
+
+  dashboard:
+    build:
+      context: ./services/dashboard
+      dockerfile: Dockerfile
+    container_name: dashboard
+    depends_on:
+      - redis
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+    volumes:
+      - ./shared:/app/shared
+    networks:
+      - ai-trading-network
+
+networks:
+  ai-trading-network:
+    driver: bridge
+
+volumes:
+  mysql_data:

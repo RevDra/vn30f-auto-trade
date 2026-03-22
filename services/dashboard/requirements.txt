@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+pydantic-settings
+# websockets for real-time dashboard updates
+websockets
