@@ -5,7 +5,7 @@
 ![Architecture](https://img.shields.io/badge/Architecture-Microservices-orange)
 ![Latency](https://img.shields.io/badge/Latency-%3C200ms-brightgreen)
 
-> An enterprise-grade, multi-agent automated trading system designed specifically for the Vietnamese Derivative Market (VN30F1M). 
+> An enterprise-grade, multi-agent automated trading system designed specifically for the Vietnamese Derivative Market (VN30F1M).
 
 This project aims to tame the high volatility of the VN30F1M via a **Risk-Aware Multi-Agent Architecture**. Instead of relying on a single "black-box" model, the system leverages a committee of specialized AI agents governed by a strict XAI (Explainable AI) Adjudicator to ensure mathematical rigor and absolute risk control.
 

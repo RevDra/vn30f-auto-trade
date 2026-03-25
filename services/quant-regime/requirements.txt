@@ -8,3 +8,6 @@ pydantic-settings
 fastapi
 uvicorn
 redis
+lightgbm
+ta
+vnstock>=0.3.5
