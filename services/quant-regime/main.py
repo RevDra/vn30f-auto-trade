@@ -1,11 +1,14 @@
 import json
 import logging
 import asyncio
+import os
+import joblib
 from datetime import datetime
 from typing import Dict, Any, Tuple, Optional
 
 import numpy as np
 import pandas as pd
+import ta
 from fastapi import FastAPI
 import uvicorn
 import redis.asyncio as redis
@@ -51,74 +54,122 @@ class DataBuffer:
         return self.data.copy()
 
 class QuantAgent:
-    """Agent to calculate MACD and RSI and generate a trading signal."""
+    """Agent to calculate technical features and generate an ensemble trading signal."""
 
-    def __init__(self, rsi_period: int = 14, macd_fast: int = 12, macd_slow: int = 26, macd_signal: int = 9):
-        self.rsi_period = rsi_period
-        self.macd_fast = macd_fast
-        self.macd_slow = macd_slow
-        self.macd_signal = macd_signal
-        logger.info("Initialized QuantAgent")
+    def __init__(self, models_path: str = "shared/models"):
+        self.models_path = models_path
+        self.lgbm_model = None
+        self.rf_model = None
+        self.logres_model = None
+        self.scaler = None
+        self._load_models()
+        logger.info("Initialized QuantAgent with Ensemble Models")
 
-    def _calculate_rsi(self, series: pd.Series) -> pd.Series:
-        """Calculate Relative Strength Index."""
-        delta = series.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=self.rsi_period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=self.rsi_period).mean()
-        rs = gain / loss
-        return 100 - (100 / (1 + rs))
+    def _load_models(self):
+        """Load trained models and scaler from joblib files."""
+        try:
+            lgbm_file = os.path.join(self.models_path, "lgbm_quant.joblib")
+            rf_file = os.path.join(self.models_path, "rf_quant.joblib")
+            logres_file = os.path.join(self.models_path, "logres_quant.joblib")
+            scaler_file = os.path.join(self.models_path, "scaler.joblib")
 
-    def _calculate_macd(self, series: pd.Series) -> Tuple[pd.Series, pd.Series, pd.Series]:
-        """Calculate MACD, Signal, and Histogram."""
-        exp1 = series.ewm(span=self.macd_fast, adjust=False).mean()
-        exp2 = series.ewm(span=self.macd_slow, adjust=False).mean()
-        macd = exp1 - exp2
-        signal = macd.ewm(span=self.macd_signal, adjust=False).mean()
-        histogram = macd - signal
-        return macd, signal, histogram
+            if all(os.path.exists(f) for f in [lgbm_file, rf_file, logres_file, scaler_file]):
+                self.lgbm_model = joblib.load(lgbm_file)
+                self.rf_model = joblib.load(rf_file)
+                self.logres_model = joblib.load(logres_file)
+                self.scaler = joblib.load(scaler_file)
+                logger.info("Successfully loaded all quant models and scaler.")
+            else:
+                logger.error(f"One or more model files not found in {self.models_path}")
+        except Exception as e:
+            logger.error(f"Error loading models: {e}")
+
+    def _calculate_features(self, df: pd.DataFrame) -> Optional[pd.DataFrame]:
+        """Calculate technical indicators for the latest row."""
+        try:
+            if len(df) < 30: # Minimum rows needed for indicators
+                return None
+
+            # Create a copy to avoid modifying the original buffer
+            df_feat = df.copy()
+
+            # RSI
+            df_feat['rsi_14'] = ta.momentum.RSIIndicator(close=df_feat['close'], window=14).rsi()
+
+            # MACD
+            macd = ta.trend.MACD(close=df_feat['close'])
+            df_feat['macd'] = macd.macd()
+            df_feat['macd_signal'] = macd.macd_signal()
+            df_feat['macd_diff'] = macd.macd_diff()
+
+            # Bollinger Bands
+            bb = ta.volatility.BollingerBands(close=df_feat['close'], window=20, window_dev=2)
+            df_feat['bb_mavg'] = bb.bollinger_mavg()
+            df_feat['bb_high'] = bb.bollinger_hband()
+            df_feat['bb_low'] = bb.bollinger_lband()
+
+            # VWAP
+            df_feat['vwap'] = ta.volume.VolumeWeightedAveragePrice(
+                high=df_feat['high'], low=df_feat['low'], close=df_feat['close'], volume=df_feat['volume']
+            ).volume_weighted_average_price()
+
+            # Select features in the correct order as used during training
+            features = [
+                'open', 'high', 'low', 'close', 'volume',
+                'rsi_14', 'macd', 'macd_signal', 'macd_diff',
+                'bb_mavg', 'bb_high', 'bb_low', 'vwap'
+            ]
+
+            # Get only the latest row and required features
+            latest_features = df_feat[features].tail(1)
+
+            if latest_features.isnull().values.any():
+                return None
+
+            return latest_features
+        except Exception as e:
+            logger.error(f"Error calculating features: {e}")
+            return None
 
     def generate_signal(self, data: pd.DataFrame) -> Tuple[str, float]:
         """
-        Generate a trading signal (LONG, SHORT, HOLD) and a confidence score (0.0 to 1.0).
-        Returns: (signal, confidence)
+        Generate a trading signal (LONG, SHORT, HOLD) and a confidence score.
+        Uses Soft Voting ensemble of LGBM, RF, and LogReg.
         """
-        if len(data) < self.macd_slow:
+        if self.lgbm_model is None or self.rf_model is None or self.logres_model is None:
+            logger.warning("Models not loaded, returning HOLD")
+            return "HOLD", 0.0
+
+        latest_X = self._calculate_features(data)
+        if latest_X is None:
             return "HOLD", 0.0
 
         try:
-            close_prices = data['close']
+            # Get predict_proba from each model
+            # LGBM & RF take raw features
+            prob_lgbm = self.lgbm_model.predict_proba(latest_X)[0]
+            prob_rf = self.rf_model.predict_proba(latest_X)[0]
 
-            # Calculate indicators
-            rsi = self._calculate_rsi(close_prices)
-            macd, signal, hist = self._calculate_macd(close_prices)
+            # LogReg takes scaled features
+            latest_X_scaled = self.scaler.transform(latest_X)
+            prob_logres = self.logres_model.predict_proba(latest_X_scaled)[0]
 
-            # Get latest values
-            current_rsi = rsi.iloc[-1]
-            current_macd = macd.iloc[-1]
-            current_signal = signal.iloc[-1]
+            # Soft Voting: Average probabilities
+            # Classes are usually [-1, 0, 1] or [0, 1, 2] depending on how they were encoded
+            # Let's check model classes
+            classes = self.lgbm_model.classes_ # e.g., [-1, 0, 1]
+            avg_probs = (prob_lgbm + prob_rf + prob_logres) / 3.0
 
-            # Simple logic for signals
-            # Note: In a real system this would be more sophisticated
-            action = "HOLD"
-            confidence = 0.5
+            # Find label with highest probability
+            best_idx = np.argmax(avg_probs)
+            best_label = classes[best_idx]
+            confidence = avg_probs[best_idx]
 
-            if pd.isna(current_rsi) or pd.isna(current_macd):
-                return "HOLD", 0.0
+            # Map label to Signal
+            signal_map = {1: "LONG", -1: "SHORT", 0: "HOLD"}
+            signal = signal_map.get(best_label, "HOLD")
 
-            if current_rsi < 30 and current_macd > current_signal:
-                action = "LONG"
-                confidence = min(1.0, (30 - current_rsi) / 30 + 0.5)
-            elif current_rsi > 70 and current_macd < current_signal:
-                action = "SHORT"
-                confidence = min(1.0, (current_rsi - 70) / 30 + 0.5)
-            elif current_macd > current_signal:
-                action = "LONG"
-                confidence = 0.6
-            elif current_macd < current_signal:
-                action = "SHORT"
-                confidence = 0.6
-
-            return action, round(confidence, 2)
+            return signal, float(round(confidence, 4))
 
         except Exception as e:
             logger.error(f"Error generating signal: {e}")
@@ -155,32 +206,26 @@ class RegimeModel:
         Returns: (regime_label, regime_multiplier)
         """
         # Per requirements, if not trained, return random regime or simple calculation
-        # "Chưa cần thiết lập cronjob retrain HMM ở bước này"
         import random
         try:
-            # We don't train here. Since we're not training, we mock the prediction
-            # based on simple volatility
-
             if len(data) < 20:
-                # Return default if not enough data
                 return "Mean-Reverting", 1.0
 
-            # Very simple logic to mock HMM states without actual training
             close_prices = data['close']
             returns = close_prices.pct_change().dropna()
 
             if len(returns) == 0:
                 return "Mean-Reverting", 1.0
 
-            volatility = returns.std() * np.sqrt(252 * 24 * 60 / 5) # Annualized vol approx
+            volatility = returns.std() * np.sqrt(252 * 24 * 12) # Annualized vol approx (5m interval)
             mean_return = returns.mean()
 
             # Simple heuristic
-            if volatility > 0.02: # arbitrarily high threshold for volatility
+            if volatility > 0.02:
                 state_label = "Volatile"
-            elif mean_return > 0.001:
+            elif mean_return > 0.0001:
                 state_label = "Trending Up"
-            elif mean_return < -0.001:
+            elif mean_return < -0.0001:
                 state_label = "Trending Down"
             else:
                 state_label = "Mean-Reverting"
@@ -236,7 +281,6 @@ class QuantRegimeService:
                 if message["type"] == "message":
                     try:
                         data = json.loads(message["data"])
-                        # Check if this is candle data (has required OHLCV fields)
                         if all(k in data for k in ["time", "open", "high", "low", "close", "volume"]):
                             self.buffer.add_candle(data)
                             await self._analyze_and_publish()
@@ -256,7 +300,7 @@ class QuantRegimeService:
     async def _analyze_and_publish(self):
         """Run agents on current buffer and publish the combined signal."""
         df = self.buffer.get_data()
-        if df.empty or len(df) < 5:  # Need minimum data to do anything
+        if df.empty or len(df) < 5:
             return
 
         try:
@@ -320,19 +364,17 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage FastAPI application lifecycle."""
-    # Startup
     logger.info("Starting Quant & Regime Service")
     await service.start()
     yield
-    # Shutdown
     logger.info("Shutting down Quant & Regime Service")
     await service.stop()
 
 # Initialize FastAPI app
 app = FastAPI(
     title="Quant & Regime Service",
-    description="AI Trading System - Quant Agent and HMM Regime Service",
-    version="1.0.0",
+    description="AI Trading System - Quant Agent and Ensemble Model Service",
+    version="1.1.0",
     lifespan=lifespan
 )
 
@@ -342,7 +384,8 @@ async def health_check():
     return {
         "status": "healthy",
         "buffer_size": len(service.buffer.get_data()),
-        "redis_connected": service.redis_client is not None
+        "redis_connected": service.redis_client is not None,
+        "models_loaded": service.quant_agent.lgbm_model is not None
     }
 
 if __name__ == "__main__":
