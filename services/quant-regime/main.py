@@ -14,6 +14,13 @@ import uvicorn
 import redis.asyncio as redis
 from hmmlearn.hmm import GaussianHMM
 
+import sys
+import os
+
+# Thêm đường dẫn gốc để Python tìm thấy thư mục 'shared'
+sys.path.append("/app")  # Dành cho khi chạy trong Docker
+sys.path.append(os.getcwd())  # Dành cho khi chạy Local/Codespaces từ thư mục gốc
+
 from shared.config import settings
 
 # Setup logging
@@ -33,9 +40,9 @@ class DataBuffer:
             # Expected format: {'time': ..., 'open': ..., 'high': ..., 'low': ..., 'close': ..., 'volume': ...}
             # Add to dataframe
             new_row = pd.DataFrame([candle_data])
-            if 'time' in new_row.columns:
-                new_row['time'] = pd.to_datetime(new_row['time'])
-                new_row.set_index('time', inplace=True)
+            if 'timestamp' in new_row.columns:
+                new_row['timestamp'] = pd.to_datetime(new_row['timestamp'])
+                new_row.set_index('timestamp', inplace=True)
 
             if self.data.empty:
                 self.data = new_row
@@ -281,7 +288,7 @@ class QuantRegimeService:
                 if message["type"] == "message":
                     try:
                         data = json.loads(message["data"])
-                        if all(k in data for k in ["time", "open", "high", "low", "close", "volume"]):
+                        if all(k in data for k in ["timestamp", "open", "high", "low", "close", "volume"]):
                             self.buffer.add_candle(data)
                             await self._analyze_and_publish()
                         else:
