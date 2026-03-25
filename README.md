@@ -62,5 +62,3 @@ vn30f-auto-trade/
 ## 📜 License
 
 This project is licensed under the **Apache License 2.0**. See the `LICENSE` file for more details.
-
-Bạn thấy phần mô tả kiến trúc (đặc biệt là cái Replay Engine tiêm trượt giá) đã đủ độ "cháy" để thu hút dân trong ngành chưa? Chúng ta có cần bổ sung thêm tiến độ của Phase 2 vào README không?
