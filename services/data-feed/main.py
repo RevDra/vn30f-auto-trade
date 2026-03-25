@@ -175,7 +175,8 @@ class DataFetcher:
         try:
             def _fetch():
                 try:
-                    df = self.tv.get_hist(symbol=self.symbol, exchange='HNX', interval=Interval.in_5_minute, n_bars=1)
+                    tv_symbol = "VN301!" if self.symbol == "VN30F1M" else self.symbol
+                    df = self.tv.get_hist(symbol=tv_symbol, exchange='HNX', interval=Interval.in_5_minute, n_bars=1)
                     if df is not None and not df.empty:
                         latest = df.iloc[-1]
                         return {
