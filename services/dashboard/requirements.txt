@@ -1,5 +1,9 @@
 fastapi
 uvicorn
+pydantic
 pydantic-settings
-# websockets for real-time dashboard updates
 websockets
+redis
+httpx
+pytest
+pytest-asyncio

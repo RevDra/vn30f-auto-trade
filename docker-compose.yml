@@ -41,8 +41,12 @@ services:
       context: ./services/replay-engine
       dockerfile: Dockerfile
     container_name: replay-engine
+    depends_on:
+      - redis
+      - mysql
     environment:
       - REDIS_HOST=redis
+      - DATABASE_URL=mysql+aiomysql://root:rootpass@mysql:3306/vn30f1m_db
     volumes:
       - ./shared:/app/shared
     networks:
@@ -122,19 +126,33 @@ services:
     networks:
       - ai-trading-network
 
-  dashboard:
+  dashboard-backend:
     build:
       context: ./services/dashboard
       dockerfile: Dockerfile
-    container_name: dashboard
+    container_name: dashboard-backend
     depends_on:
       - redis
+      - replay-engine
     ports:
       - "8000:8000"
     environment:
       - REDIS_HOST=redis
+      - REPLAY_ENGINE_URL=http://replay-engine:8001
     volumes:
       - ./shared:/app/shared
+    networks:
+      - ai-trading-network
+
+  dashboard-frontend:
+    build:
+      context: ./services/dashboard/frontend
+      dockerfile: Dockerfile
+    container_name: dashboard-frontend
+    depends_on:
+      - dashboard-backend
+    ports:
+      - "3000:3000"
     networks:
       - ai-trading-network
 

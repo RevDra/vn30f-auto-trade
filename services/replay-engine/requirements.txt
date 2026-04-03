@@ -1,7 +1,12 @@
 numpy
 pandas
 pydantic-settings
+pydantic
 fastapi
 uvicorn
 redis
 pytest
+httpx
+sqlalchemy[asyncio]>=2.0
+aiomysql
+aiosqlite
